@@ -12,6 +12,8 @@ import android.app.Notification;
 import android.content.Context;
 import android.support.v4.app.NotificationCompat;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import com.godot.game.R;
 import android.graphics.BitmapFactory;
 import android.graphics.Bitmap;
@@ -34,6 +36,9 @@ import com.zendesk.sdk.model.request.CommentsResponse;
 import com.zendesk.sdk.model.request.CommentResponse;
 import com.zendesk.sdk.feedback.ui.ContactZendeskActivity;
 import com.zendesk.sdk.requests.ViewRequestActivity;
+import com.zendesk.sdk.feedback.BaseZendeskFeedbackConfiguration;
+import com.zendesk.sdk.feedback.ZendeskFeedbackConfiguration;
+import com.zendesk.sdk.model.request.CustomField;
 
 public class Zendesk extends Godot.SingletonBase {
     Activity activity;
@@ -44,6 +49,11 @@ public class Zendesk extends Godot.SingletonBase {
     int requestsCount = -1;
     String lastRequestId = "";
     final RequestProvider requestProvider;// = ZendeskConfig.INSTANCE.provider().requestProvider();
+    ZendeskFeedbackConfiguration configuration;
+    String ticketTitle;
+    String ticketInfo; 
+    List<CustomField> fields;
+
 
 
     static public Godot.SingletonBase initialize(Activity p_activity) {
@@ -59,27 +69,52 @@ public class Zendesk extends Godot.SingletonBase {
             "hasUpdates", 
             "requestUpdates",
             "getCommentsCount",
-            "requestCommentsCount"
+            "requestCommentsCount",
+            "setTicketInfo",
+            "setTicketTitle",
+            "addField",
+            "setTicketFormId",
+            "getVersionName"
         });
         activity = p_activity;
         app = p_activity.getApplication();
         String url = GodotLib.getGlobal("Zendesk/url");
         String appId = GodotLib.getGlobal("Zendesk/application_id");
         String clientId = GodotLib.getGlobal("Zendesk/oauth_client_id");
+        fields = new ArrayList<CustomField>();
 
         updates = new String[0];
         ZendeskConfig.INSTANCE.init(app, url, appId, clientId);
         requestProvider = ZendeskConfig.INSTANCE.provider().requestProvider();
+        configuration = new BaseZendeskFeedbackConfiguration() {
+            @Override
+            public String getRequestSubject() {
+                return ticketTitle;
+            }
+
+            @Override
+            public String getAdditionalInfo() {
+                return ticketInfo;
+            }
+
+            @Override
+            public List<String> getTags(){
+                List<String> res = new ArrayList<String>();
+                res.add("summer_tales");
+                return res;
+            }
+        };
                 
 
         
     }
 
-    public void login(String userId){
+    public void login(String name, String email){
         if (loggedIn) return;
         loggedIn = true;
         Identity identity = new AnonymousIdentity.Builder()
-            .withNameIdentifier(userId)
+            .withNameIdentifier(name)
+            .withEmailIdentifier(email)
             .build();
         ZendeskConfig.INSTANCE.setIdentity(identity);
         requestCommentsCount();
@@ -110,7 +145,7 @@ public class Zendesk extends Godot.SingletonBase {
     }
 
     public void requestCommentsCount(){
-        requestProvider.getAllRequests(new ZendeskCallback<List<Request>>(){
+        ZendeskConfig.INSTANCE.provider().requestProvider().getAllRequests(new ZendeskCallback<List<Request>>(){
             @Override
             public void onSuccess(List<Request> requests) {
                 commentsCount = 0;
@@ -121,7 +156,7 @@ public class Zendesk extends Godot.SingletonBase {
                     final long requesterId = request.getRequesterId();
                     lastRequestId = request.getId();
                     //reqToAuthor[lastRequestId] = request.getRequesterId();
-                    requestProvider.getComments(request.getId(), new ZendeskCallback<CommentsResponse>(){
+                    ZendeskConfig.INSTANCE.provider().requestProvider().getComments(request.getId(), new ZendeskCallback<CommentsResponse>(){
                         @Override
                         public void onSuccess(CommentsResponse resp){
                             for (CommentResponse comment: resp.getComments()){
@@ -132,6 +167,7 @@ public class Zendesk extends Godot.SingletonBase {
                         }
                         @Override
                         public void onError(ErrorResponse errorResponse){
+                            
                         }
                     });
                     
@@ -158,7 +194,8 @@ public class Zendesk extends Godot.SingletonBase {
             intent.putExtra(ViewRequestActivity.EXTRA_REQUEST_ID, lastRequestId);
             activity.startActivity(intent);
         } else {
-            ContactZendeskActivity.startActivity(activity, null);
+            ContactZendeskActivity.startActivity(activity, configuration);
+            //ContactZendeskActivity.startActivity(activity, null);
         }
     }
 
@@ -166,7 +203,30 @@ public class Zendesk extends Godot.SingletonBase {
         return updates.length > 0 ? 1 : 0;
     }
 
+    public void setTicketTitle(String title){
+        ticketTitle = title;
+    }
 
+    public void setTicketInfo(String info){
+        ticketInfo = info;
+    }
 
+    public void addField(int id, String value){
+        fields.add(new CustomField((long)id, value));
+        ZendeskConfig.INSTANCE.setCustomFields(fields);
+    }
+
+    public void setTicketFormId(int id){
+        ZendeskConfig.INSTANCE.setTicketFormId((long)id);
+    }
+
+    public String getVersionName(){
+        try {
+            PackageInfo pInfo = app.getPackageManager().getPackageInfo(app.getPackageName(), 0);
+            return pInfo.versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            return "unknown";
+        }
+    }
 
 }
